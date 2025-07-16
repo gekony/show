@@ -23,7 +23,7 @@ CSV_FILE = 'drop_data.csv'
 STYLE_POINT_TEMPLATE_FILE = 'style_point.png' 
 BASE_STYLE_POINT_AMOUNT = 200.0
 ANCHOR_PRIZES_HEADER = 'anchor_prizes_header.png'
-MATCH_THRESHOLD = 0.6 # 一致率の基準値 (60%)
+MATCH_THRESHOLD = 0.3 # 一致率の基準値 (60%)
 
 # --- Botの初期設定 ---
 intents = discord.Intents.default()
