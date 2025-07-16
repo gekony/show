@@ -29,7 +29,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 既存の関数 (一部診断機能を追加) ---
 def setup_csv():
     if not os.path.exists(CSV_FILE):
         with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
@@ -37,14 +36,6 @@ def setup_csv():
             writer.writerow(['datetime', 'song_name', 'multiplier', 'item_name', 'normalized_amount'])
 
 def extract_normalized_drops(image_path):
-    # --- 【診断機能】処理開始時にファイル存在を確認 ---
-    print("--- [DIAGNOSTIC] extract_normalized_dropsを開始します。templatesフォルダの内容を確認...")
-    if not os.path.isdir(TEMPLATES_DIR):
-        print(f"--- [ERROR] '{TEMPLATES_DIR}' フォルダが見つかりません！")
-        return None
-    print(f"--- [DIAGNOSTIC] '{TEMPLATES_DIR}' フォルダ内のファイル: {os.listdir(TEMPLATES_DIR)}")
-    # ---
-
     try:
         img_color = cv2.imread(image_path)
         if img_color is None: raise ValueError("画像ファイルが読み込めません")
@@ -59,16 +50,17 @@ def extract_normalized_drops(image_path):
     prizes_area_gray = None
     try:
         anchor_path = os.path.join(TEMPLATES_DIR, ANCHOR_PRIZES_HEADER)
-        if not os.path.exists(anchor_path):
-             raise FileNotFoundError(f"アンカーファイルがパスに存在しません: {anchor_path}")
         anchor_template = cv2.imread(anchor_path, 0)
         if anchor_template is None:
-            raise ValueError(f"{ANCHOR_PRIZES_HEADER} は読み込めますでしたが、画像データが空です。")
+            raise FileNotFoundError(f"{ANCHOR_PRIZES_HEADER} が見つかりません。")
 
         res = cv2.matchTemplate(img_gray, anchor_template, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-
-        if max_val >= 0.8:
+        
+        # 【最終修正】一致率のログを出力し、判定を少し甘くする
+        print(f"--- [DIAGNOSTIC] アンカーの一致率(max_val): {max_val:.4f} ---")
+        if max_val >= 0.7: # 判定を80%から70%に緩和
+            print("--- [SUCCESS] アンカーを発見しました！ ---")
             anchor_w, anchor_h = anchor_template.shape[::-1]
             anchor_top_left = max_loc
             song_y1, song_y2 = anchor_top_left[1] - 180, anchor_top_left[1] - 130
@@ -79,6 +71,9 @@ def extract_normalized_drops(image_path):
             prizes_area_gray = img_gray[prize_y1:prize_y2, prize_x1:prize_x2]
             song_name_text = pytesseract.image_to_string(song_roi, lang='jpn').strip()
             if song_name_text: result["song_name"] = song_name_text
+        else:
+            print("--- [FAIL] アンカーの一致率が低いため、処理を中断します。---")
+
     except Exception as e:
         print(f"アンカー探索または領域決定でエラー: {e}")
         return result
@@ -87,14 +82,14 @@ def extract_normalized_drops(image_path):
         print("プライズ領域を特定できませんでした。")
         return result
 
-    # B. プライズ領域内から各アイテムを探す
+    # --- B. プライズ領域内から各アイテムを探す (これ以降のロジックは変更なし) ---
     try:
         sp_template_path = os.path.join(TEMPLATES_DIR, STYLE_POINT_TEMPLATE_FILE)
         if os.path.exists(sp_template_path):
             sp_template = cv2.imread(sp_template_path, 0)
             if sp_template is not None and not (sp_template.shape[0] > prizes_area_gray.shape[0] or sp_template.shape[1] > prizes_area_gray.shape[1]):
                 res = cv2.matchTemplate(prizes_area_gray, sp_template, cv2.TM_CCOEFF_NORMED)
-                loc = np.where(res >= 0.8)
+                loc = np.where(res >= 0.7) # こちらも判定を緩和
                 if len(loc[0]) > 0:
                     sp_w, sp_h = sp_template.shape[::-1]
                     top_left = (loc[1][0], loc[0][0])
@@ -116,7 +111,7 @@ def extract_normalized_drops(image_path):
             if template is None or (template.shape[0] > prizes_area_gray.shape[0] or template.shape[1] > prizes_area_gray.shape[1]): continue
 
             res = cv2.matchTemplate(prizes_area_gray, template, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(res >= 0.8)
+            loc = np.where(res >= 0.7) # こちらも判定を緩和
             if len(loc[0]) > 0:
                 w, h = template.shape[::-1]
                 pt = (loc[1][0], loc[0][0])
@@ -131,6 +126,8 @@ def extract_normalized_drops(image_path):
                     result["drops"].append({"item": item_name, "amount": normalized_amount})
     except Exception as e: print(f"プライズ領域の処理でエラー: {e}")
     return result
+
+# --- これ以降の show_stats, on_ready, on_message, Webサーバー機能のコードは変更ありません ---
 
 def show_stats(song_name_filter=None):
     if not os.path.exists(CSV_FILE): return "まだデータがありません。"
@@ -161,14 +158,6 @@ def show_stats(song_name_filter=None):
 @bot.event
 async def on_ready():
     print(f'{bot.user} としてログインしました')
-    # --- 【診断機能】起動時にファイル構造をログに出力 ---
-    print("--- [DIAGNOSTIC] Botが起動しました。現在のファイル構造:")
-    for root, dirs, files in os.walk("/app"):
-        path = root.split(os.sep)
-        print((len(path) - 1) * '---', os.path.basename(root))
-        for file in files:
-            print(len(path) * '---', file)
-    # ---
     setup_csv()
     try:
         synced = await bot.tree.sync()
