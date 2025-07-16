@@ -14,12 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 作業ディレクトリを設定
 WORKDIR /app
 
-# 必要なPythonライブラリのリストをコピーし、インストール
+# Pythonライブラリのリストをコピーし、インストール
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# プロジェクトの全ファイルを作業ディレクトリにコピー
-COPY . .
+# templatesフォルダを明示的にコピーする (最重要修正箇所)
+COPY templates ./templates/
+
+# bot.pyをコピーする
+COPY bot.py .
 
 # Botを実行するコマンド
 CMD ["python", "bot.py"]
