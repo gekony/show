@@ -1,6 +1,10 @@
 # ベースとなる公式Pythonイメージを選択
 FROM python:3.11-slim
 
+# 不要なキャッシュファイルを作成しないように設定
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
 # システムを最新の状態にし、必要なライブラリをすべてインストール
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -14,15 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 作業ディレクトリを設定
 WORKDIR /app
 
-# Pythonライブラリのリストをコピーし、インストール
+# 先にrequirements.txtだけをコピーしてライブラリをインストール
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# templatesフォルダを明示的にコピーする (最重要修正箇所)
-COPY templates ./templates/
+# 残りの全ファイルをコピーする
+COPY . .
 
-# bot.pyをコピーする
-COPY bot.py .
+# 【最終診断】コピー後のファイル構造をすべて表示する
+RUN ls -R
 
 # Botを実行するコマンド
 CMD ["python", "bot.py"]
