@@ -23,6 +23,9 @@ CSV_FILE = 'drop_data.csv'
 STYLE_POINT_TEMPLATE_FILE = 'style_point.png' 
 BASE_STYLE_POINT_AMOUNT = 200.0
 
+# 【新機能】アンカーとなるテンプレート画像の名前
+ANCHOR_PRIZES_HEADER = 'anchor_prizes_header.png'
+
 # --- Botの初期設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
@@ -45,52 +48,83 @@ def extract_normalized_drops(image_path):
 
     result = {"song_name": "Unknown", "multiplier": 1.0, "drops": []}
 
-    # A. 曲名を読み取る
+    # --- A. アンカー「獲得プライズ」を探し、各領域を動的に決定 ---
+    prizes_area_gray = None
     try:
-        song_roi = img_gray[250:300, 300:700]
-        song_name_text = pytesseract.image_to_string(song_roi, lang='jpn').strip()
-        if song_name_text: result["song_name"] = song_name_text
-    except Exception as e: print(f"曲名読み取りエラー: {e}")
+        anchor_path = os.path.join(TEMPLATES_DIR, ANCHOR_PRIZES_HEADER)
+        anchor_template = cv2.imread(anchor_path, 0)
+        if anchor_template is None:
+            raise FileNotFoundError(f"{ANCHOR_PRIZES_HEADER} が見つかりません。")
 
-    # B. スタイルポイントを探し、倍率を計算
+        res = cv2.matchTemplate(img_gray, anchor_template, cv2.TM_CCOEFF_NORMED)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+
+        if max_val >= 0.8:
+            anchor_w, anchor_h = anchor_template.shape[::-1]
+            anchor_top_left = max_loc
+
+            # アンカーの位置を基準に、曲名とプライズ領域を決定
+            # 1. 曲名領域 (アンカーの上あたり)
+            song_y1 = anchor_top_left[1] - 180
+            song_y2 = anchor_top_left[1] - 130
+            song_x1 = anchor_top_left[0]
+            song_x2 = anchor_top_left[0] + 400
+            song_roi = img_gray[song_y1:song_y2, song_x1:x2]
+            
+            # 2. プライズ領域 (アンカーの真下)
+            prize_y1 = anchor_top_left[1] + anchor_h
+            prize_y2 = prize_y1 + 200 # プライズ領域の高さを200pxと想定
+            prize_x1 = anchor_top_left[0] - 100 # 少し左から
+            prize_x2 = prize_x1 + 700 # 幅を700pxと想定
+            prizes_area_gray = img_gray[prize_y1:prize_y2, prize_x1:prize_x2]
+
+            # 曲名をOCRで読み取る
+            song_name_text = pytesseract.image_to_string(song_roi, lang='jpn').strip()
+            if song_name_text: result["song_name"] = song_name_text
+
+    except Exception as e:
+        print(f"アンカー探索または領域決定でエラー: {e}")
+        # アンカーが見つからない場合は、以降の処理をスキップ
+        return result
+
+    if prizes_area_gray is None:
+        print("プライズ領域を特定できませんでした。")
+        return result
+
+    # --- B. プライズ領域内から各アイテムを探す ---
     try:
+        # B-1. スタイルポイントを探し、倍率を計算
         sp_template_path = os.path.join(TEMPLATES_DIR, STYLE_POINT_TEMPLATE_FILE)
         sp_template = cv2.imread(sp_template_path, 0)
-        sp_w, sp_h = sp_template.shape[::-1]
-        res = cv2.matchTemplate(img_gray, sp_template, cv2.TM_CCOEFF_NORMED)
-        loc = np.where(res >= 0.8)
-
-        if len(loc[0]) > 0:
-            top_left = (loc[1][0], loc[0][0])
-            amount_roi = img_gray[top_left[1] + sp_h - 10 : top_left[1] + sp_h + 40, top_left[0] : top_left[0] + sp_w]
-            _, amount_roi_thresh = cv2.threshold(amount_roi, 180, 255, cv2.THRESH_BINARY_INV)
-            amount_text = pytesseract.image_to_string(amount_roi_thresh, config="--psm 7 -c tessedit_char_whitelist=x0123456789").strip()
-            amount_match = re.search(r'(\d+)', amount_text)
-            if amount_match:
-                style_point_amount = int(amount_match.group(1))
-                if style_point_amount > 0: result["multiplier"] = style_point_amount / BASE_STYLE_POINT_AMOUNT
-    except Exception as e: print(f"倍率計算エラー: {e}")
-
-    # C. 他の全プライズをテンプレートマッチングで探し、正規化して記録
-    for filename in os.listdir(TEMPLATES_DIR):
-        # 【最重要修正箇所】ファイル名を小文字に変換して比較することで、大文字・小文字を区別しないようにする
-        if filename.lower() == STYLE_POINT_TEMPLATE_FILE.lower():
-            continue
-        
-        # 画像ファイル以外をスキップする処理も、小文字に変換して判定
-        if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            continue
-
-        try:
-            template_path = os.path.join(TEMPLATES_DIR, filename)
-            template = cv2.imread(template_path, 0)
-            if template is None: continue
-            w, h = template.shape[::-1]
-            res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+        if sp_template is not None and not (sp_template.shape[0] > prizes_area_gray.shape[0] or sp_template.shape[1] > prizes_area_gray.shape[1]):
+            res = cv2.matchTemplate(prizes_area_gray, sp_template, cv2.TM_CCOEFF_NORMED)
             loc = np.where(res >= 0.8)
             if len(loc[0]) > 0:
+                sp_w, sp_h = sp_template.shape[::-1]
+                top_left = (loc[1][0], loc[0][0])
+                amount_roi = prizes_area_gray[top_left[1] + sp_h - 10 : top_left[1] + sp_h + 40, top_left[0] : top_left[0] + sp_w]
+                _, amount_roi_thresh = cv2.threshold(amount_roi, 180, 255, cv2.THRESH_BINARY_INV)
+                amount_text = pytesseract.image_to_string(amount_roi_thresh, config="--psm 7 -c tessedit_char_whitelist=x0123456789").strip()
+                amount_match = re.search(r'(\d+)', amount_text)
+                if amount_match:
+                    style_point_amount = int(amount_match.group(1))
+                    if style_point_amount > 0: result["multiplier"] = style_point_amount / BASE_STYLE_POINT_AMOUNT
+
+        # B-2. 他の全プライズを探す
+        for filename in os.listdir(TEMPLATES_DIR):
+            if filename.lower() in [STYLE_POINT_TEMPLATE_FILE.lower(), ANCHOR_PRIZES_HEADER.lower()]: continue
+            if not filename.lower().endswith(('.png', '.jpg', '.jpeg')): continue
+            
+            template_path = os.path.join(TEMPLATES_DIR, filename)
+            template = cv2.imread(template_path, 0)
+            if template is None or (template.shape[0] > prizes_area_gray.shape[0] or template.shape[1] > prizes_area_gray.shape[1]): continue
+
+            res = cv2.matchTemplate(prizes_area_gray, template, cv2.TM_CCOEFF_NORMED)
+            loc = np.where(res >= 0.8)
+            if len(loc[0]) > 0:
+                w, h = template.shape[::-1]
                 pt = (loc[1][0], loc[0][0])
-                amount_roi = img_gray[pt[1] + h - 10: pt[1] + h + 40, pt[0]: pt[0] + w]
+                amount_roi = prizes_area_gray[pt[1] + h - 10: pt[1] + h + 40, pt[0]: pt[0] + w]
                 _, amount_roi_thresh = cv2.threshold(amount_roi, 180, 255, cv2.THRESH_BINARY_INV)
                 amount_text = pytesseract.image_to_string(amount_roi_thresh, config="--psm 7 -c tessedit_char_whitelist=x0123456789").strip()
                 amount_match = re.search(r'(\d+)', amount_text)
@@ -99,8 +133,11 @@ def extract_normalized_drops(image_path):
                     normalized_amount = found_amount / result["multiplier"]
                     item_name = os.path.splitext(filename)[0]
                     result["drops"].append({"item": item_name, "amount": normalized_amount})
-        except Exception as e: print(f"{filename} の処理中にエラー: {e}")
+
+    except Exception as e: print(f"プライズ領域の処理でエラー: {e}")
     return result
+
+# --- これ以降の show_stats, on_ready, on_message, Webサーバー機能のコードは変更ありません ---
 
 def show_stats(song_name_filter=None):
     if not os.path.exists(CSV_FILE): return "まだデータがありません。"
