@@ -23,7 +23,7 @@ CSV_FILE = 'drop_data.csv'
 STYLE_POINT_TEMPLATE_FILE = 'style_point.png' 
 BASE_STYLE_POINT_AMOUNT = 200.0
 ANCHOR_PRIZES_HEADER = 'anchor_prizes_header.png'
-MATCH_THRESHOLD = 0.5 # 一致率の基準値 (少し余裕を持たせて50%に設定)
+MATCH_THRESHOLD = 0.3 # ユーザーのログに合わせた一致率の基準値 (30%)
 
 # --- Botの初期設定 ---
 intents = discord.Intents.default()
@@ -59,7 +59,7 @@ def extract_normalized_drops(image_path):
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
         
         print(f"--- [DIAGNOSTIC] アンカーの一致率(max_val): {max_val:.4f} ---")
-        if max_val >= 0.3: # アンカーは低めでもOK
+        if max_val >= MATCH_THRESHOLD:
             print("--- [SUCCESS] アンカーを発見しました！ ---")
             anchor_w, anchor_h = anchor_template.shape[::-1]
             anchor_top_left = max_loc
@@ -99,7 +99,6 @@ def extract_normalized_drops(image_path):
             res = cv2.matchTemplate(prizes_area_gray, template, cv2.TM_CCOEFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
-            # 【最終診断】全アイテムの一致率をログに出力
             print(f"--- [DIAGNOSTIC] アイテム '{filename}' の一致率(max_val): {max_val:.4f} ---")
 
             if max_val >= MATCH_THRESHOLD:
@@ -108,7 +107,11 @@ def extract_normalized_drops(image_path):
                 pt = max_loc
                 amount_roi = prizes_area_gray[pt[1] + h - 10: pt[1] + h + 40, pt[0]: pt[0] + w]
                 _, amount_roi_thresh = cv2.threshold(amount_roi, 180, 255, cv2.THRESH_BINARY_INV)
+                
+                # 【最終診断】OCRが何を読み取ったかをログに出力
                 amount_text = pytesseract.image_to_string(amount_roi_thresh, config="--psm 7 -c tessedit_char_whitelist=x0123456789").strip()
+                print(f"--- [OCR-RESULT] '{filename}' の数量として '{amount_text}' を読み取りました。 ---")
+                
                 amount_match = re.search(r'(\d+)', amount_text)
                 
                 if amount_match:
@@ -120,7 +123,10 @@ def extract_normalized_drops(image_path):
                     
                     normalized_amount = found_amount / result["multiplier"]
                     result["drops"].append({"item": item_name, "amount": normalized_amount})
+                    print(f"--- [SUCCESS] '{item_name}' のドロップ数 {found_amount} (正規化後: {normalized_amount}) を記録しました。 ---")
     except Exception as e: print(f"プライズ領域の処理でエラー: {e}")
+    
+    print(f"--- [FINAL-RESULT] 最終的な抽出データ: {result} ---")
     return result
 
 # --- これ以降の show_stats, on_ready, on_message, Webサーバー機能のコードは変更ありません ---
