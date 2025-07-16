@@ -58,12 +58,11 @@ def extract_normalized_drops(image_path):
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
         
         print(f"--- [DIAGNOSTIC] アンカーの一致率(max_val): {max_val:.4f} ---")
-        if max_val >= 0.3: # 判定を60%に設定
+        if max_val >= 0.3: # 【最終調整】判定を30%に設定
             print("--- [SUCCESS] アンカーを発見しました！ ---")
             anchor_w, anchor_h = anchor_template.shape[::-1]
             anchor_top_left = max_loc
             
-            # 【バグ修正】 x2 -> song_x2 に修正
             song_y1, song_y2 = anchor_top_left[1] - 180, anchor_top_left[1] - 130
             song_x1, song_x2 = anchor_top_left[0], anchor_top_left[0] + 400
             song_roi = img_gray[song_y1:song_y2, song_x1:song_x2]
@@ -92,7 +91,7 @@ def extract_normalized_drops(image_path):
             sp_template = cv2.imread(sp_template_path, 0)
             if sp_template is not None and not (sp_template.shape[0] > prizes_area_gray.shape[0] or sp_template.shape[1] > prizes_area_gray.shape[1]):
                 res = cv2.matchTemplate(prizes_area_gray, sp_template, cv2.TM_CCOEFF_NORMED)
-                loc = np.where(res >= 0.6) # 判定を緩和
+                loc = np.where(res >= 0.3) # 【最終調整】判定を30%に設定
                 if len(loc[0]) > 0:
                     sp_w, sp_h = sp_template.shape[::-1]
                     top_left = (loc[1][0], loc[0][0])
@@ -114,7 +113,7 @@ def extract_normalized_drops(image_path):
             if template is None or (template.shape[0] > prizes_area_gray.shape[0] or template.shape[1] > prizes_area_gray.shape[1]): continue
 
             res = cv2.matchTemplate(prizes_area_gray, template, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(res >= 0.6) # 判定を緩和
+            loc = np.where(res >= 0.3) # 【最終調整】判定を30%に設定
             if len(loc[0]) > 0:
                 w, h = template.shape[::-1]
                 pt = (loc[1][0], loc[0][0])
@@ -129,8 +128,6 @@ def extract_normalized_drops(image_path):
                     result["drops"].append({"item": item_name, "amount": normalized_amount})
     except Exception as e: print(f"プライズ領域の処理でエラー: {e}")
     return result
-
-# --- これ以降の show_stats, on_ready, on_message, Webサーバー機能のコードは変更ありません ---
 
 def show_stats(song_name_filter=None):
     if not os.path.exists(CSV_FILE): return "まだデータがありません。"
