@@ -57,18 +57,21 @@ def extract_normalized_drops(image_path):
         res = cv2.matchTemplate(img_gray, anchor_template, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
         
-        # 【最終修正】一致率のログを出力し、判定を少し甘くする
         print(f"--- [DIAGNOSTIC] アンカーの一致率(max_val): {max_val:.4f} ---")
-        if max_val >= 0.3: # 判定を80%から70%に緩和
+        if max_val >= 0.3: # 判定を60%に設定
             print("--- [SUCCESS] アンカーを発見しました！ ---")
             anchor_w, anchor_h = anchor_template.shape[::-1]
             anchor_top_left = max_loc
+            
+            # 【バグ修正】 x2 -> song_x2 に修正
             song_y1, song_y2 = anchor_top_left[1] - 180, anchor_top_left[1] - 130
             song_x1, song_x2 = anchor_top_left[0], anchor_top_left[0] + 400
-            song_roi = img_gray[song_y1:song_y2, song_x1:x2]
+            song_roi = img_gray[song_y1:song_y2, song_x1:song_x2]
+
             prize_y1, prize_y2 = anchor_top_left[1] + anchor_h, anchor_top_left[1] + anchor_h + 200
             prize_x1, prize_x2 = anchor_top_left[0] - 100, anchor_top_left[0] - 100 + 700
             prizes_area_gray = img_gray[prize_y1:prize_y2, prize_x1:prize_x2]
+            
             song_name_text = pytesseract.image_to_string(song_roi, lang='jpn').strip()
             if song_name_text: result["song_name"] = song_name_text
         else:
@@ -82,14 +85,14 @@ def extract_normalized_drops(image_path):
         print("プライズ領域を特定できませんでした。")
         return result
 
-    # --- B. プライズ領域内から各アイテムを探す (これ以降のロジックは変更なし) ---
+    # B. プライズ領域内から各アイテムを探す
     try:
         sp_template_path = os.path.join(TEMPLATES_DIR, STYLE_POINT_TEMPLATE_FILE)
         if os.path.exists(sp_template_path):
             sp_template = cv2.imread(sp_template_path, 0)
             if sp_template is not None and not (sp_template.shape[0] > prizes_area_gray.shape[0] or sp_template.shape[1] > prizes_area_gray.shape[1]):
                 res = cv2.matchTemplate(prizes_area_gray, sp_template, cv2.TM_CCOEFF_NORMED)
-                loc = np.where(res >= 0.7) # こちらも判定を緩和
+                loc = np.where(res >= 0.6) # 判定を緩和
                 if len(loc[0]) > 0:
                     sp_w, sp_h = sp_template.shape[::-1]
                     top_left = (loc[1][0], loc[0][0])
@@ -111,7 +114,7 @@ def extract_normalized_drops(image_path):
             if template is None or (template.shape[0] > prizes_area_gray.shape[0] or template.shape[1] > prizes_area_gray.shape[1]): continue
 
             res = cv2.matchTemplate(prizes_area_gray, template, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(res >= 0.7) # こちらも判定を緩和
+            loc = np.where(res >= 0.6) # 判定を緩和
             if len(loc[0]) > 0:
                 w, h = template.shape[::-1]
                 pt = (loc[1][0], loc[0][0])
