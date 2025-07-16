@@ -59,7 +59,7 @@ def extract_normalized_drops(image_path):
         
         # 【最終修正】一致率のログを出力し、判定を少し甘くする
         print(f"--- [DIAGNOSTIC] アンカーの一致率(max_val): {max_val:.4f} ---")
-        if max_val >= 0.7: # 判定を80%から70%に緩和
+        if max_val >= 0.3: # 判定を80%から70%に緩和
             print("--- [SUCCESS] アンカーを発見しました！ ---")
             anchor_w, anchor_h = anchor_template.shape[::-1]
             anchor_top_left = max_loc
